@@ -16,10 +16,17 @@ type ComplaintType = { id: string; name: string };
 type Settings = { id?: string; company_name: string; company_address: string; authority_name: string; authority_designation: string };
 type Tab = "dashboard" | "employee" | "letters" | "settings";
 
-const defaultSettings: Settings = { company_name: "Your Company", company_address: "", authority_name: "HR Manager", authority_designation: "Human Resources" };
+const fixedDepartment = "Post loan collection";
+const fixedAuthorityDesignation = "HR & Admin Manager";
+const defaultSettings: Settings = { company_name: "Your Company", company_address: "", authority_name: "HR Manager", authority_designation: fixedAuthorityDesignation };
 const today = () => new Date().toISOString().slice(0, 10);
 const formatDate = (value: string) => value ? new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00`)) : "—";
 const formatLetterDate = (value: string) => value ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${value}T00:00:00`)) : "—";
+const replacePlaceholders = (value: string, replacements: Record<string, string>) =>
+  Object.entries(replacements).reduce(
+    (result, [key, replacement]) => result.replaceAll(`{{${key}}}`, replacement),
+    value,
+  );
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -96,7 +103,11 @@ export default function Home() {
     }
     setLoading(false);
   }, [session]);
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    // Data loading is intentionally triggered when the authenticated session changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadData();
+  }, [loadData]);
 
   if (!authReady) return <main className="center-screen">Loading secure workspace…</main>;
   if (!session) return <Login />;
@@ -130,7 +141,12 @@ export default function Home() {
       const uniqueRecords = Array.from(new Map(records.map((record) => [record.employee_id.toLowerCase(), record])).values());
       let { error } = await supabase.from("employees").upsert(uniqueRecords, { onConflict: "owner_id,employee_id" });
       if (error?.message.toLowerCase().includes("designation")) {
-        const compatibleRecords = uniqueRecords.map(({ designation: _designation, ...record }) => record);
+        const compatibleRecords = uniqueRecords.map((record) => ({
+          employee_id: record.employee_id,
+          name: record.name,
+          grade: record.grade,
+          status: record.status,
+        }));
         ({ error } = await supabase.from("employees").upsert(compatibleRecords, { onConflict: "owner_id,employee_id" }));
       }
       if (error) {
@@ -164,7 +180,7 @@ export default function Home() {
       {tab === "dashboard" && <Dashboard employees={filteredEmployees} allEmployees={employees} complaints={complaints} templates={templates} search={search} setSearch={setSearch} openEmployee={openEmployee} importExcel={importExcel} />}
       {tab === "employee" && <EmployeePanel employee={selectedEmployee} complaints={complaints.filter((c) => c.employee_id === selectedEmployeeId)} complaintTypes={complaintTypes} hrEmail={session.user.email || "HR"} onBack={() => setTab("dashboard")} onSaved={loadData} setNotice={setNotice} />}
       {tab === "letters" && <LetterGenerator employees={employees} complaints={complaints} templates={templates} settings={settings} initialEmployeeId={selectedEmployeeId} setNotice={setNotice} />}
-      {tab === "settings" && <SettingsPanel settings={settings} complaintTypes={complaintTypes} templates={templates} onSaved={loadData} setNotice={setNotice} />}
+      {tab === "settings" && <SettingsPanel settings={settings} complaintTypes={complaintTypes} templates={templates} hrEmail={session.user.email || ""} onSaved={loadData} setNotice={setNotice} />}
     </main>
   </div>;
 }
@@ -213,39 +229,60 @@ function EmployeePanel({ employee, complaints, complaintTypes, hrEmail, onBack, 
     </tbody></table></div></section></>;
 }
 
-function LetterGenerator({ employees, templates, initialEmployeeId, setNotice }: {
+function LetterGenerator({ employees, complaints, templates, settings, initialEmployeeId, setNotice }: {
   employees: Employee[]; complaints: Complaint[]; templates: LetterTemplate[]; settings: Settings; initialEmployeeId: string; setNotice: (v: string) => void;
 }) {
   const [employeeId, setEmployeeId] = useState(initialEmployeeId);
-  const [employeeSearch, setEmployeeSearch] = useState("");
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
+  const [employeeSearch, setEmployeeSearch] = useState(() => {
+    const initial = employees.find((item) => item.id === initialEmployeeId);
+    return initial ? `${initial.employee_id} — ${initial.name}` : "";
+  });
+  const [templateId, setTemplateId] = useState(() => templates[0]?.id || "");
   const [preview, setPreview] = useState(false);
   const employee = employees.find((e) => e.id === employeeId);
+  const selectedTemplateId = templates.some((item) => item.id === templateId) ? templateId : templates[0]?.id || "";
+  const template = templates.find((item) => item.id === selectedTemplateId);
+  const authorityName = settings.authority_name?.trim() || "HR Manager";
   const matchingEmployees = employeeSearch.trim()
     ? employees.filter((item) => `${item.employee_id} ${item.name} ${item.designation || item.grade}`.toLowerCase().includes(employeeSearch.toLowerCase())).slice(0, 8)
     : [];
-  useEffect(() => {
-    const initial = employees.find((item) => item.id === initialEmployeeId);
-    if (initial) setEmployeeSearch(`${initial.employee_id} — ${initial.name}`);
-  }, [employees, initialEmployeeId]);
   function chooseEmployee(item: Employee) {
     setEmployeeId(item.id);
     setEmployeeSearch(`${item.employee_id} — ${item.name}`);
     setPreview(false);
   }
+  const employeeComplaints = employee ? complaints.filter((item) => item.employee_id === employee.id) : [];
+  const replacements: Record<string, string> = employee ? {
+    date: formatLetterDate(today()),
+    employeeName: employee.name,
+    employeeId: employee.employee_id,
+    employeeGrade: employee.grade || "—",
+    employeeDesignation: employee.designation || employee.grade || "—",
+    department: fixedDepartment,
+    complaints: employeeComplaints.length
+      ? employeeComplaints.map((item) => `${item.complaint_type} (${formatLetterDate(item.complaint_date)})`).join("\n")
+      : "No complaint details selected.",
+    companyName: settings.company_name || "",
+    companyAddress: settings.company_address || "",
+    hrName: authorityName,
+    authorityName,
+    authorityDesignation: fixedAuthorityDesignation,
+  } : {};
+  const subject = template ? replacePlaceholders(template.subject, replacements) : "";
+  const body = template ? replacePlaceholders(template.body, replacements) : "";
   function generate() {
     if (!employee) return setNotice("Search for and select an employee first.");
-    if (!subject.trim() || !body.trim()) return setNotice("Enter both the subject and letter body.");
+    if (!template) return setNotice("Select an email format first. You can create one in Settings.");
+    if (!subject.trim() || !body.trim()) return setNotice("The selected email format needs both a subject and body. Please update it in Settings.");
     setPreview(true);
   }
   async function saveLetter() {
-    if (!preview || !employee) return;
-    const content = `Date: ${formatLetterDate(today())}\n\nEmployee Name: ${employee.name}\n\nEmployee ID: ${employee.employee_id}\nDesignation: ${employee.designation || employee.grade || "—"}\nDepartment: Post loan collection\n\nSubject: ${subject.trim()}\n\n${body.trim()}\n\nSincerely,\n\nMd Rezaul Karim\nHR & Admin Manager`;
-    const { error } = await supabase.from("generated_letters").insert({ employee_id: employee.id, template_id: templates[0]?.id || null, subject: subject.trim(), content });
+    if (!preview || !employee || !template) return;
+    const content = `Date: ${formatLetterDate(today())}\n\nEmployee Name: ${employee.name}\n\nEmployee ID: ${employee.employee_id}\nDesignation: ${employee.designation || employee.grade || "—"}\nDepartment: ${fixedDepartment}\n\nSubject: ${subject.trim()}\n\n${body.trim()}\n\nSincerely,\n\n${authorityName}\n${fixedAuthorityDesignation}`;
+    const { error } = await supabase.from("generated_letters").insert({ employee_id: employee.id, template_id: template.id, subject: subject.trim(), content });
     setNotice(error ? error.message : "Letter saved to history.");
   }
-  return <><section className="hero compact"><div><span className="eyebrow">LETTER GENERATOR</span><h2>Create an official employee letter</h2><p>Find the employee, add a custom subject and body, then generate a clean A4 letter.</p></div></section>
+  return <><section className="hero compact"><div><span className="eyebrow">LETTER GENERATOR</span><h2>Create an official employee letter</h2><p>Find the employee and select a saved email format to generate a clean A4 letter.</p></div></section>
     <section className="panel no-print"><div className="panel-heading"><div><span className="eyebrow">EMPLOYEE</span><h2>Find employee</h2></div></div>
       <div className="employee-search-box">
         <label>Search by employee ID or name<input value={employeeSearch} onChange={(e) => { setEmployeeSearch(e.target.value); setEmployeeId(""); setPreview(false); }} placeholder="Type employee ID or name" autoComplete="off" /></label>
@@ -256,13 +293,14 @@ function LetterGenerator({ employees, templates, initialEmployeeId, setNotice }:
         <label>Employee Name<input value={employee.name} readOnly /></label>
         <label>Employee ID<input value={employee.employee_id} readOnly /></label>
         <label>Designation<input value={employee.designation || employee.grade || "—"} readOnly /></label>
-        <label>Department<input value="Post loan collection" readOnly /></label>
-        <label>Issuing Authority<input value="Md Rezaul Karim — HR & Admin Manager" readOnly /></label>
+        <label>Department<input value={fixedDepartment} readOnly /></label>
+        <label>Issuing Authority<input value={`${authorityName} — ${fixedAuthorityDesignation}`} readOnly /></label>
       </div>}
     </section>
-    <section className="panel no-print"><div className="panel-heading"><div><span className="eyebrow">LETTER CONTENT</span><h2>Custom subject and body</h2></div></div><div className="form-grid">
-      <label className="full">Subject<input value={subject} onChange={(e) => { setSubject(e.target.value); setPreview(false); }} placeholder="Enter the official letter subject" /></label>
-      <label className="full">Body<textarea className="letter-body-input" value={body} onChange={(e) => { setBody(e.target.value); setPreview(false); }} placeholder="Write the full letter body here…" /></label>
+    <section className="panel no-print"><div className="panel-heading"><div><span className="eyebrow">EMAIL FORMAT</span><h2>Select a saved format</h2><p>Subject and body are managed from the Settings page.</p></div></div><div className="form-grid">
+      <label className="full">Email format<select value={selectedTemplateId} onChange={(e) => { setTemplateId(e.target.value); setPreview(false); }}><option value="">Select an email format</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      {template && <div className="full format-summary"><small>Subject</small><strong>{subject || "No subject has been saved."}</strong><p>{body || "No body has been saved."}</p></div>}
+      {!templates.length && <div className="full format-summary"><p>No email format is available. Add one from Settings first.</p></div>}
     </div><div className="button-row"><button className="button primary" onClick={generate}>Generate letter</button><button className="button secondary" onClick={saveLetter} disabled={!preview}>Save letter</button><button className="button secondary" onClick={() => window.print()} disabled={!preview}>Print / Save PDF</button></div></section>
     <section className="panel print-panel"><div className="panel-heading no-print"><div><span className="eyebrow">PREVIEW</span><h2>Letter preview</h2></div></div>
       {preview && employee ? <article className="letter-preview">
@@ -271,25 +309,35 @@ function LetterGenerator({ employees, templates, initialEmployeeId, setNotice }:
           <p><strong>Employee Name:</strong> {employee.name}</p>
           <p><strong>Employee ID:</strong> {employee.employee_id}</p>
           <p><strong>Designation:</strong> {employee.designation || employee.grade || "—"}</p>
-          <p><strong>Department:</strong> Post loan collection</p>
+          <p><strong>Department:</strong> {fixedDepartment}</p>
         </div>
         <p className="letter-subject"><strong>Subject: {subject.trim()}</strong></p>
         <div className="letter-body">{body.trim()}</div>
-        <div className="letter-signature"><p>Sincerely,</p><p><strong>Md Rezaul Karim</strong><br />HR &amp; Admin Manager</p></div>
+        <div className="letter-signature"><p>Sincerely,</p><p><strong>{authorityName}</strong><br />{fixedAuthorityDesignation}</p></div>
       </article> : <div className="letter-empty">Your generated A4 letter will appear here.</div>}
     </section>
   </>;
 }
 
-function SettingsPanel({ settings, complaintTypes, templates, onSaved, setNotice }: {
-  settings: Settings; complaintTypes: ComplaintType[]; templates: LetterTemplate[]; onSaved: () => Promise<void>; setNotice: (v: string) => void;
+function SettingsPanel({ settings, complaintTypes, templates, hrEmail, onSaved, setNotice }: {
+  settings: Settings; complaintTypes: ComplaintType[]; templates: LetterTemplate[]; hrEmail: string; onSaved: () => Promise<void>; setNotice: (v: string) => void;
 }) {
   const [company, setCompany] = useState(settings); const [newType, setNewType] = useState(""); const [drafts, setDrafts] = useState<LetterTemplate[]>(templates);
-  useEffect(() => setCompany(settings), [settings]); useEffect(() => setDrafts(templates), [templates]);
+  useEffect(() => {
+    // Keep locally editable settings aligned with the latest saved database row.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCompany({ ...settings, authority_designation: fixedAuthorityDesignation });
+  }, [settings]);
+  useEffect(() => {
+    // Replace temporary draft IDs with their saved database IDs after a refresh.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDrafts(templates);
+  }, [templates]);
   async function saveCompany(event: FormEvent) {
     event.preventDefault();
-    const { error } = await supabase.from("company_settings").upsert({ ...company, id: company.id || "00000000-0000-0000-0000-000000000001" });
-    setNotice(error ? error.message : "Company settings saved."); if (!error) await onSaved();
+    if (!company.authority_name.trim()) return setNotice("Enter the HR name before saving.");
+    const { error } = await supabase.from("company_settings").upsert({ ...company, authority_name: company.authority_name.trim(), authority_designation: fixedAuthorityDesignation, id: company.id || "00000000-0000-0000-0000-000000000001" });
+    setNotice(error ? error.message : "Settings saved. The HR name will now appear automatically in generated letters."); if (!error) await onSaved();
   }
   async function addType() {
     if (!newType.trim()) return;
@@ -299,24 +347,28 @@ function SettingsPanel({ settings, complaintTypes, templates, onSaved, setNotice
   async function deleteType(id: string) { const { error } = await supabase.from("complaint_types").delete().eq("id", id); setNotice(error ? error.message : "Complaint type deleted."); if (!error) await onSaved(); }
   async function saveTemplate(t: LetterTemplate) {
     const payload = { ...(t.id.startsWith("new-") ? {} : { id: t.id }), name: t.name, subject: t.subject, body: t.body, sort_order: t.sort_order };
-    const { error } = await supabase.from("letter_templates").upsert(payload); setNotice(error ? error.message : "Letter template saved."); if (!error) await onSaved();
+    const { error } = await supabase.from("letter_templates").upsert(payload); setNotice(error ? error.message : "Email format saved."); if (!error) await onSaved();
   }
   async function deleteTemplate(id: string) {
     if (id.startsWith("new-")) return setDrafts((items) => items.filter((item) => item.id !== id));
     const { error } = await supabase.from("letter_templates").delete().eq("id", id); setNotice(error ? error.message : "Letter template deleted."); if (!error) await onSaved();
   }
   const update = (id: string, patch: Partial<LetterTemplate>) => setDrafts((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
-  return <><section className="hero compact"><div><span className="eyebrow">SYSTEM SETTINGS</span><h2>Company and reusable content</h2><p>Manage complaint categories and letter templates used by HR.</p></div></section>
+  return <><section className="hero compact"><div><span className="eyebrow">SYSTEM SETTINGS</span><h2>HR profile and reusable content</h2><p>Manage the HR name, email formats, company details and complaint categories.</p></div></section>
+    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">HR PROFILE</span><h2>Email and HR name</h2><p>The saved HR name is used automatically in every generated letter.</p></div></div><form className="form-grid settings-profile-grid" onSubmit={saveCompany}>
+      <label className="full">Email<input type="email" value={hrEmail} readOnly /></label>
+      <label className="full">HR Name<input value={company.authority_name} onChange={(e) => setCompany({ ...company, authority_name: e.target.value })} placeholder="Enter the HR name" required /></label>
+      <label className="full">Designation<input value={fixedAuthorityDesignation} readOnly /></label>
+      <div className="full"><button className="button primary">Save HR name</button></div>
+    </form></section>
     <section className="panel"><div className="panel-heading"><div><span className="eyebrow">COMPANY</span><h2>Company details</h2></div></div><form className="form-grid" onSubmit={saveCompany}>
       <label>Company name<input value={company.company_name} onChange={(e) => setCompany({ ...company, company_name: e.target.value })} /></label>
       <label>Company address<input value={company.company_address} onChange={(e) => setCompany({ ...company, company_address: e.target.value })} /></label>
-      <label>HR authority<input value={company.authority_name} onChange={(e) => setCompany({ ...company, authority_name: e.target.value })} /></label>
-      <label>Designation<input value={company.authority_designation} onChange={(e) => setCompany({ ...company, authority_designation: e.target.value })} /></label>
       <div className="full"><button className="button primary">Save company details</button></div>
     </form></section>
-    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">COMPLAINT TYPES</span><h2>Fixed complaint list</h2></div></div><div className="inline-form"><input value={newType} onChange={(e) => setNewType(e.target.value)} placeholder="New complaint type" /><button className="button primary" onClick={addType}>Add complaint</button></div><div className="chip-list">{complaintTypes.map((c) => <span key={c.id}>{c.name}<button onClick={() => deleteType(c.id)}>×</button></span>)}</div></section>
-    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">LETTER TEMPLATES</span><h2>Editable letter list</h2><p>Use placeholders such as {"{{employeeName}}"}, {"{{complaints}}"} and {"{{companyName}}"}.</p></div><button className="button primary" onClick={() => setDrafts([...drafts, { id: `new-${Date.now()}`, name: `Letter ${drafts.length + 1}`, subject: "", body: "", sort_order: drafts.length + 1 }])}>Add new letter</button></div>
-      <div className="template-list">{drafts.map((t) => <article className="template-card" key={t.id}><div className="template-title"><input value={t.name} onChange={(e) => update(t.id, { name: e.target.value })} /><button onClick={() => deleteTemplate(t.id)}>Delete</button></div><label>Subject<input value={t.subject} onChange={(e) => update(t.id, { subject: e.target.value })} /></label><label>Letter body<textarea value={t.body} onChange={(e) => update(t.id, { body: e.target.value })} /></label><button className="button secondary" onClick={() => saveTemplate(t)}>Save template</button></article>)}</div>
+    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">EMAIL FORMAT</span><h2>Subject and body formats</h2><p>Edit the email/letter content here. Generate Letter will use the saved format automatically.</p><p>Auto fields: {"{{employeeName}}"}, {"{{employeeId}}"}, {"{{employeeDesignation}}"}, {"{{date}}"}, {"{{department}}"}, {"{{hrName}}"}.</p></div><button className="button primary" onClick={() => setDrafts([...drafts, { id: `new-${Date.now()}`, name: `Letter ${drafts.length + 1}`, subject: "", body: "", sort_order: drafts.length + 1 }])}>Add email format</button></div>
+      <div className="template-list">{drafts.map((t) => <article className="template-card" key={t.id}><div className="template-title"><input aria-label="Email format name" value={t.name} onChange={(e) => update(t.id, { name: e.target.value })} /><button onClick={() => deleteTemplate(t.id)}>Delete</button></div><label>Subject<input value={t.subject} onChange={(e) => update(t.id, { subject: e.target.value })} /></label><label>Body<textarea value={t.body} onChange={(e) => update(t.id, { body: e.target.value })} /></label><button className="button secondary" onClick={() => saveTemplate(t)}>Save email format</button></article>)}</div>
     </section>
+    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">COMPLAINT TYPES</span><h2>Fixed complaint list</h2></div></div><div className="inline-form"><input value={newType} onChange={(e) => setNewType(e.target.value)} placeholder="New complaint type" /><button className="button primary" onClick={addType}>Add complaint</button></div><div className="chip-list">{complaintTypes.map((c) => <span key={c.id}>{c.name}<button onClick={() => deleteType(c.id)}>×</button></span>)}</div></section>
   </>;
 }

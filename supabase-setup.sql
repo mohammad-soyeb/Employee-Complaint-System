@@ -22,15 +22,15 @@ create or replace function public.create_private_workspace()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
   insert into public.company_settings (id, owner_id, company_name, company_address, authority_name, authority_designation)
-  values (gen_random_uuid(), new.id, 'Your Company', '', 'HR Manager', 'Human Resources')
+  values (gen_random_uuid(), new.id, 'Your Company', '', 'HR Manager', 'HR & Admin Manager')
   on conflict (owner_id) do nothing;
 
   insert into public.complaint_types (owner_id, name) values
     (new.id, 'Attendance Issue'), (new.id, 'Misconduct'), (new.id, 'Policy Violation');
 
   insert into public.letter_templates (owner_id, name, subject, body, sort_order) values
-    (new.id, 'Official Notice', 'Official Notice', E'Date: {{date}}\n\nTo,\n{{employeeName}}\nEmployee ID: {{employeeId}}\nGrade: {{employeeGrade}}\n\nThe following matter(s) have been recorded:\n{{complaints}}\n\nSincerely,\n{{authorityName}}\n{{authorityDesignation}}\n{{companyName}}', 1),
-    (new.id, 'Request for Explanation', 'Request for Explanation', E'Date: {{date}}\n\nDear {{employeeName}},\n\nYou are requested to provide an explanation regarding:\n{{complaints}}\n\nRegards,\n{{authorityName}}\n{{authorityDesignation}}', 2);
+    (new.id, 'Official Notice', 'Official Notice', E'The following matter(s) have been recorded:\n\n{{complaints}}\n\nYou are requested to respond in writing within the required period.', 1),
+    (new.id, 'Request for Explanation', 'Request for Explanation', E'You are requested to provide an explanation regarding the matter described below:\n\n{{complaints}}\n\nPlease submit your written explanation within the required period.', 2);
   return new;
 end;
 $$;
