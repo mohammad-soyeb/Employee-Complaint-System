@@ -180,7 +180,7 @@ export default function Home() {
       <header className="topbar"><div><span className="eyebrow">EMPLOYEE COMPLAINT MANAGEMENT</span><h1>{{ dashboard: "Dashboard", employee: "Employee Details", letters: "Letter Generator", settings: "Settings" }[tab]}</h1></div><span className="secure-pill">● Secure session</span></header>
       {notice && <div className="notice"><span>{notice}</span><button onClick={() => setNotice("")}>×</button></div>}
       {loading && <div className="loading-bar" />}
-      {tab === "dashboard" && <Dashboard employees={filteredEmployees} allEmployees={employees} complaints={complaints} templates={templates} search={search} setSearch={setSearch} openEmployee={openEmployee} importExcel={importExcel} />}
+      {tab === "dashboard" && <Dashboard employees={filteredEmployees} allEmployees={employees} complaints={complaints} complaintTypes={complaintTypes} templates={templates} search={search} setSearch={setSearch} openEmployee={openEmployee} importExcel={importExcel} />}
       {tab === "employee" && <EmployeePanel employee={selectedEmployee} complaints={complaints.filter((c) => c.employee_id === selectedEmployeeId)} complaintTypes={complaintTypes} hrEmail={session.user.email || "HR"} onBack={() => setTab("dashboard")} onSaved={loadData} setNotice={setNotice} />}
       {tab === "letters" && <LetterGenerator employees={employees} complaints={complaints} templates={templates} settings={settings} initialEmployeeId={selectedEmployeeId} setNotice={setNotice} />}
       {tab === "settings" && <SettingsPanel settings={settings} complaintTypes={complaintTypes} templates={templates} hrEmail={session.user.email || ""} onSaved={loadData} setNotice={setNotice} />}
@@ -188,9 +188,33 @@ export default function Home() {
   </div>;
 }
 
-function Dashboard({ employees, allEmployees, complaints, templates, search, setSearch, openEmployee, importExcel }: {
-  employees: Employee[]; allEmployees: Employee[]; complaints: Complaint[]; templates: LetterTemplate[]; search: string; setSearch: (v: string) => void; openEmployee: (id: string) => void; importExcel: (file?: File) => void;
+function Dashboard({ employees, allEmployees, complaints, complaintTypes, templates, search, setSearch, openEmployee, importExcel }: {
+  employees: Employee[]; allEmployees: Employee[]; complaints: Complaint[]; complaintTypes: ComplaintType[]; templates: LetterTemplate[]; search: string; setSearch: (v: string) => void; openEmployee: (id: string) => void; importExcel: (file?: File) => void;
 }) {
+  const [complaintFilter, setComplaintFilter] = useState("all");
+  const complaintNames = Array.from(new Set([
+    ...complaintTypes.map((item) => item.name.trim()),
+    ...complaints.map((item) => item.complaint_type.trim()),
+  ]))
+    .filter(Boolean)
+    .sort((first, second) => first.localeCompare(second));
+  const activeComplaintFilter = complaintFilter === "all" || complaintNames.includes(complaintFilter)
+    ? complaintFilter
+    : "all";
+  const visibleEmployees = employees.filter((employee) =>
+    activeComplaintFilter === "all"
+      || complaints.some((complaint) =>
+        complaint.employee_id === employee.id
+        && complaint.complaint_type === activeComplaintFilter,
+      ),
+  );
+  const employeeCountForComplaint = (complaintName: string) =>
+    new Set(
+      complaints
+        .filter((complaint) => complaint.complaint_type === complaintName)
+        .map((complaint) => complaint.employee_id),
+    ).size;
+
   return <><section className="hero"><div><span className="eyebrow">HR OVERVIEW</span><h2>People, complaints and action—all in one place.</h2><p>Review employee records, document complaints and generate official letters.</p></div><label className="button primary file-button">Import Excel<input type="file" accept=".xlsx,.xls" onChange={(e) => importExcel(e.target.files?.[0])} /></label></section>
     <section className="stats-grid">
       <article className="stat-card blue"><span className="stat-icon">👥</span><div><small>Total employees</small><strong>{allEmployees.length}</strong><p>Employee records</p></div></article>
@@ -198,9 +222,27 @@ function Dashboard({ employees, allEmployees, complaints, templates, search, set
       <article className="stat-card green"><span className="stat-icon">□</span><div><small>Letter templates</small><strong>{templates.length}</strong><p>Ready to generate</p></div></article>
     </section>
     <section className="panel"><div className="panel-heading"><div><span className="eyebrow">EMPLOYEE RECORDS</span><h2>Employee list</h2></div><input className="search-input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employee ID or name" /></div>
-      <div className="table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Grade</th><th>Status</th><th>Complaints</th><th>Action</th></tr></thead><tbody>
-        {employees.map((e) => <tr key={e.id}><td><strong>{e.employee_id}</strong></td><td>{e.name}</td><td>{e.grade || "—"}</td><td><span className={`status ${e.status.toLowerCase()}`}>{e.status}</span></td><td>{complaints.filter((c) => c.employee_id === e.id).length}</td><td><button className="text-button" onClick={() => openEmployee(e.id)}>View details →</button></td></tr>)}
-        {!employees.length && <tr><td colSpan={6}><div className="empty">No employee records found.</div></td></tr>}
+      <div className="complaint-filter">
+        <div className="filter-summary"><div><strong>Filter by complaint</strong><small>Select a complaint to see who has that record.</small></div><span>{visibleEmployees.length} employee{visibleEmployees.length === 1 ? "" : "s"} shown</span></div>
+        <div className="filter-buttons" role="group" aria-label="Filter employees by complaint">
+          <button type="button" className={activeComplaintFilter === "all" ? "active" : ""} aria-pressed={activeComplaintFilter === "all"} onClick={() => setComplaintFilter("all")}>All employees <span>{allEmployees.length}</span></button>
+          {complaintNames.map((complaintName) => <button type="button" key={complaintName} className={activeComplaintFilter === complaintName ? "active" : ""} aria-pressed={activeComplaintFilter === complaintName} onClick={() => setComplaintFilter(complaintName)}>{complaintName}<span>{employeeCountForComplaint(complaintName)}</span></button>)}
+        </div>
+      </div>
+      <div className="table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Grade</th><th>Status</th><th>Complaint details</th><th>Action</th></tr></thead><tbody>
+        {visibleEmployees.map((employee) => {
+          const employeeComplaints = complaints.filter((complaint) =>
+            complaint.employee_id === employee.id
+            && (activeComplaintFilter === "all" || complaint.complaint_type === activeComplaintFilter),
+          );
+          return <tr key={employee.id}><td><strong>{employee.employee_id}</strong></td><td>{employee.name}</td><td>{employee.grade || "—"}</td><td><span className={`status ${employee.status.toLowerCase()}`}>{employee.status}</span></td><td><div className="complaint-cell">
+            {employeeComplaints.length
+              ? employeeComplaints.slice(0, 3).map((complaint) => <span className="complaint-tag" key={complaint.id}><strong>{complaint.complaint_type}</strong><small>{formatDate(complaint.complaint_date)}</small></span>)
+              : <span className="no-complaint">No complaints</span>}
+            {employeeComplaints.length > 3 && <small className="more-complaints">+{employeeComplaints.length - 3} more complaint{employeeComplaints.length - 3 === 1 ? "" : "s"}</small>}
+          </div></td><td><button className="text-button" onClick={() => openEmployee(employee.id)}>View details →</button></td></tr>;
+        })}
+        {!visibleEmployees.length && <tr><td colSpan={6}><div className="empty">{activeComplaintFilter === "all" ? "No employee records found." : `No employee found with “${activeComplaintFilter}”.`}</div></td></tr>}
       </tbody></table></div>
     </section></>;
 }
