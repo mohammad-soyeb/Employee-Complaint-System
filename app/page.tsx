@@ -26,10 +26,9 @@ const replacePlaceholders = (value: string, replacements: Record<string, string>
     (result, [key, replacement]) => result.replaceAll(`{{${key}}}`, replacement),
     value,
   );
-const cleanLetterBody = (value: string) =>
+const cleanTemplateBody = (value: string) =>
   value
     .replace(/^\s*Dear\s+[^\n]+(?:\r?\n)+/i, "")
-    .replace(/(?:\r?\n)+\s*Sincerely,?\s*[\s\S]*$/i, "")
     .trim();
 
 function Login() {
@@ -272,7 +271,7 @@ function LetterGenerator({ employees, complaints, templates, settings, initialEm
     authorityDesignation: "",
   } : {};
   const subject = template ? replacePlaceholders(template.subject, replacements) : "";
-  const body = template ? cleanLetterBody(replacePlaceholders(template.body, replacements)) : "";
+  const body = template ? cleanTemplateBody(replacePlaceholders(template.body, replacements)) : "";
   function generate() {
     if (!employee) return setNotice("Search for and select an employee first.");
     if (!template) return setNotice("Select an email format first. You can create one in Settings.");
@@ -364,7 +363,7 @@ function SettingsPanel({ settings, complaintTypes, templates, hrEmail, onSaved, 
       <label>Company address<input value={company.company_address} onChange={(e) => setCompany({ ...company, company_address: e.target.value })} /></label>
       <div className="full"><button className="button primary">Save company details</button></div>
     </form></section>
-    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">EMAIL FORMAT</span><h2>Subject and body formats</h2><p>Edit the email/letter content here. Generate Letter will use the saved format automatically.</p><p>The employee name is added automatically after “Dear”. Write only the main message in Body—do not add a greeting or signature.</p><p>Auto fields: {"{{employeeName}}"}, {"{{employeeId}}"}, {"{{employeeDesignation}}"}, {"{{date}}"}, {"{{department}}"}.</p></div><button className="button primary" onClick={() => setDrafts([...drafts, { id: `new-${Date.now()}`, name: `Letter ${drafts.length + 1}`, subject: "", body: "", sort_order: drafts.length + 1 }])}>Add email format</button></div>
+    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">EMAIL FORMAT</span><h2>Subject and body formats</h2><p>Edit the email/letter content here. Generate Letter will use the saved format automatically.</p><p>The employee name is added automatically after “Dear”. Add any closing lines or signature inside Body exactly as you want them to appear; they are never added automatically.</p><p>Auto fields: {"{{employeeName}}"}, {"{{employeeId}}"}, {"{{employeeDesignation}}"}, {"{{date}}"}, {"{{department}}"}.</p></div><button className="button primary" onClick={() => setDrafts([...drafts, { id: `new-${Date.now()}`, name: `Letter ${drafts.length + 1}`, subject: "", body: "", sort_order: drafts.length + 1 }])}>Add email format</button></div>
       <div className="template-list">{drafts.map((t) => <article className="template-card" key={t.id}><div className="template-title"><input aria-label="Email format name" value={t.name} onChange={(e) => update(t.id, { name: e.target.value })} /><button onClick={() => deleteTemplate(t.id)}>Delete</button></div><label>Subject<input value={t.subject} onChange={(e) => update(t.id, { subject: e.target.value })} /></label><label>Body<textarea value={t.body} onChange={(e) => update(t.id, { body: e.target.value })} /></label><button className="button secondary" onClick={() => saveTemplate(t)}>Save email format</button></article>)}</div>
     </section>
     <section className="panel"><div className="panel-heading"><div><span className="eyebrow">COMPLAINT TYPES</span><h2>Fixed complaint list</h2></div></div><div className="inline-form"><input value={newType} onChange={(e) => setNewType(e.target.value)} placeholder="New complaint type" /><button className="button primary" onClick={addType}>Add complaint</button></div><div className="chip-list">{complaintTypes.map((c) => <span key={c.id}>{c.name}<button onClick={() => deleteType(c.id)}>×</button></span>)}</div></section>
