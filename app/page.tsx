@@ -17,8 +17,7 @@ type Settings = { id?: string; company_name: string; company_address: string; au
 type Tab = "dashboard" | "employee" | "letters" | "settings";
 
 const fixedDepartment = "Post loan collection";
-const fixedAuthorityDesignation = "HR & Admin Manager";
-const defaultSettings: Settings = { company_name: "Your Company", company_address: "", authority_name: "HR Manager", authority_designation: fixedAuthorityDesignation };
+const defaultSettings: Settings = { company_name: "Your Company", company_address: "", authority_name: "", authority_designation: "" };
 const today = () => new Date().toISOString().slice(0, 10);
 const formatDate = (value: string) => value ? new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00`)) : "—";
 const formatLetterDate = (value: string) => value ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" }).format(new Date(`${value}T00:00:00`)) : "—";
@@ -27,6 +26,11 @@ const replacePlaceholders = (value: string, replacements: Record<string, string>
     (result, [key, replacement]) => result.replaceAll(`{{${key}}}`, replacement),
     value,
   );
+const cleanLetterBody = (value: string) =>
+  value
+    .replace(/^\s*Dear\s+[^\n]+(?:\r?\n)+/i, "")
+    .replace(/(?:\r?\n)+\s*Sincerely,?\s*[\s\S]*$/i, "")
+    .trim();
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -242,7 +246,6 @@ function LetterGenerator({ employees, complaints, templates, settings, initialEm
   const employee = employees.find((e) => e.id === employeeId);
   const selectedTemplateId = templates.some((item) => item.id === templateId) ? templateId : templates[0]?.id || "";
   const template = templates.find((item) => item.id === selectedTemplateId);
-  const authorityName = settings.authority_name?.trim() || "HR Manager";
   const matchingEmployees = employeeSearch.trim()
     ? employees.filter((item) => `${item.employee_id} ${item.name} ${item.designation || item.grade}`.toLowerCase().includes(employeeSearch.toLowerCase())).slice(0, 8)
     : [];
@@ -264,12 +267,12 @@ function LetterGenerator({ employees, complaints, templates, settings, initialEm
       : "No complaint details selected.",
     companyName: settings.company_name || "",
     companyAddress: settings.company_address || "",
-    hrName: authorityName,
-    authorityName,
-    authorityDesignation: fixedAuthorityDesignation,
+    hrName: "",
+    authorityName: "",
+    authorityDesignation: "",
   } : {};
   const subject = template ? replacePlaceholders(template.subject, replacements) : "";
-  const body = template ? replacePlaceholders(template.body, replacements) : "";
+  const body = template ? cleanLetterBody(replacePlaceholders(template.body, replacements)) : "";
   function generate() {
     if (!employee) return setNotice("Search for and select an employee first.");
     if (!template) return setNotice("Select an email format first. You can create one in Settings.");
@@ -278,7 +281,7 @@ function LetterGenerator({ employees, complaints, templates, settings, initialEm
   }
   async function saveLetter() {
     if (!preview || !employee || !template) return;
-    const content = `Date: ${formatLetterDate(today())}\n\nEmployee Name: ${employee.name}\n\nEmployee ID: ${employee.employee_id}\nDesignation: ${employee.designation || employee.grade || "—"}\nDepartment: ${fixedDepartment}\n\nSubject: ${subject.trim()}\n\n${body.trim()}\n\nSincerely,\n\n${authorityName}\n${fixedAuthorityDesignation}`;
+    const content = `Date: ${formatLetterDate(today())}\n\nEmployee Name: ${employee.name}\n\nEmployee ID: ${employee.employee_id}\nDesignation: ${employee.designation || employee.grade || "—"}\nDepartment: ${fixedDepartment}\n\nSubject: ${subject.trim()}\n\nDear ${employee.name},\n\n${body.trim()}`;
     const { error } = await supabase.from("generated_letters").insert({ employee_id: employee.id, template_id: template.id, subject: subject.trim(), content });
     setNotice(error ? error.message : "Letter saved to history.");
   }
@@ -294,7 +297,6 @@ function LetterGenerator({ employees, complaints, templates, settings, initialEm
         <label>Employee ID<input value={employee.employee_id} readOnly /></label>
         <label>Designation<input value={employee.designation || employee.grade || "—"} readOnly /></label>
         <label>Department<input value={fixedDepartment} readOnly /></label>
-        <label>Issuing Authority<input value={`${authorityName} — ${fixedAuthorityDesignation}`} readOnly /></label>
       </div>}
     </section>
     <section className="panel no-print"><div className="panel-heading"><div><span className="eyebrow">EMAIL FORMAT</span><h2>Select a saved format</h2><p>Subject and body are managed from the Settings page.</p></div></div><div className="form-grid">
@@ -312,8 +314,8 @@ function LetterGenerator({ employees, complaints, templates, settings, initialEm
           <p><strong>Department:</strong> {fixedDepartment}</p>
         </div>
         <p className="letter-subject"><strong>Subject: {subject.trim()}</strong></p>
+        <p className="letter-salutation">Dear {employee.name},</p>
         <div className="letter-body">{body.trim()}</div>
-        <div className="letter-signature"><p>Sincerely,</p><p><strong>{authorityName}</strong><br />{fixedAuthorityDesignation}</p></div>
       </article> : <div className="letter-empty">Your generated A4 letter will appear here.</div>}
     </section>
   </>;
@@ -326,7 +328,7 @@ function SettingsPanel({ settings, complaintTypes, templates, hrEmail, onSaved, 
   useEffect(() => {
     // Keep locally editable settings aligned with the latest saved database row.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCompany({ ...settings, authority_designation: fixedAuthorityDesignation });
+    setCompany(settings);
   }, [settings]);
   useEffect(() => {
     // Replace temporary draft IDs with their saved database IDs after a refresh.
@@ -335,9 +337,8 @@ function SettingsPanel({ settings, complaintTypes, templates, hrEmail, onSaved, 
   }, [templates]);
   async function saveCompany(event: FormEvent) {
     event.preventDefault();
-    if (!company.authority_name.trim()) return setNotice("Enter the HR name before saving.");
-    const { error } = await supabase.from("company_settings").upsert({ ...company, authority_name: company.authority_name.trim(), authority_designation: fixedAuthorityDesignation, id: company.id || "00000000-0000-0000-0000-000000000001" });
-    setNotice(error ? error.message : "Settings saved. The HR name will now appear automatically in generated letters."); if (!error) await onSaved();
+    const { error } = await supabase.from("company_settings").upsert({ ...company, id: company.id || "00000000-0000-0000-0000-000000000001" });
+    setNotice(error ? error.message : "Company settings saved."); if (!error) await onSaved();
   }
   async function addType() {
     if (!newType.trim()) return;
@@ -354,19 +355,16 @@ function SettingsPanel({ settings, complaintTypes, templates, hrEmail, onSaved, 
     const { error } = await supabase.from("letter_templates").delete().eq("id", id); setNotice(error ? error.message : "Letter template deleted."); if (!error) await onSaved();
   }
   const update = (id: string, patch: Partial<LetterTemplate>) => setDrafts((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
-  return <><section className="hero compact"><div><span className="eyebrow">SYSTEM SETTINGS</span><h2>HR profile and reusable content</h2><p>Manage the HR name, email formats, company details and complaint categories.</p></div></section>
-    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">HR PROFILE</span><h2>Email and HR name</h2><p>The saved HR name is used automatically in every generated letter.</p></div></div><form className="form-grid settings-profile-grid" onSubmit={saveCompany}>
+  return <><section className="hero compact"><div><span className="eyebrow">SYSTEM SETTINGS</span><h2>Account and reusable content</h2><p>Manage email formats, company details and complaint categories.</p></div></section>
+    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">ACCOUNT</span><h2>Account email</h2></div></div><div className="form-grid settings-profile-grid">
       <label className="full">Email<input type="email" value={hrEmail} readOnly /></label>
-      <label className="full">HR Name<input value={company.authority_name} onChange={(e) => setCompany({ ...company, authority_name: e.target.value })} placeholder="Enter the HR name" required /></label>
-      <label className="full">Designation<input value={fixedAuthorityDesignation} readOnly /></label>
-      <div className="full"><button className="button primary">Save HR name</button></div>
-    </form></section>
+    </div></section>
     <section className="panel"><div className="panel-heading"><div><span className="eyebrow">COMPANY</span><h2>Company details</h2></div></div><form className="form-grid" onSubmit={saveCompany}>
       <label>Company name<input value={company.company_name} onChange={(e) => setCompany({ ...company, company_name: e.target.value })} /></label>
       <label>Company address<input value={company.company_address} onChange={(e) => setCompany({ ...company, company_address: e.target.value })} /></label>
       <div className="full"><button className="button primary">Save company details</button></div>
     </form></section>
-    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">EMAIL FORMAT</span><h2>Subject and body formats</h2><p>Edit the email/letter content here. Generate Letter will use the saved format automatically.</p><p>Auto fields: {"{{employeeName}}"}, {"{{employeeId}}"}, {"{{employeeDesignation}}"}, {"{{date}}"}, {"{{department}}"}, {"{{hrName}}"}.</p></div><button className="button primary" onClick={() => setDrafts([...drafts, { id: `new-${Date.now()}`, name: `Letter ${drafts.length + 1}`, subject: "", body: "", sort_order: drafts.length + 1 }])}>Add email format</button></div>
+    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">EMAIL FORMAT</span><h2>Subject and body formats</h2><p>Edit the email/letter content here. Generate Letter will use the saved format automatically.</p><p>The employee name is added automatically after “Dear”. Write only the main message in Body—do not add a greeting or signature.</p><p>Auto fields: {"{{employeeName}}"}, {"{{employeeId}}"}, {"{{employeeDesignation}}"}, {"{{date}}"}, {"{{department}}"}.</p></div><button className="button primary" onClick={() => setDrafts([...drafts, { id: `new-${Date.now()}`, name: `Letter ${drafts.length + 1}`, subject: "", body: "", sort_order: drafts.length + 1 }])}>Add email format</button></div>
       <div className="template-list">{drafts.map((t) => <article className="template-card" key={t.id}><div className="template-title"><input aria-label="Email format name" value={t.name} onChange={(e) => update(t.id, { name: e.target.value })} /><button onClick={() => deleteTemplate(t.id)}>Delete</button></div><label>Subject<input value={t.subject} onChange={(e) => update(t.id, { subject: e.target.value })} /></label><label>Body<textarea value={t.body} onChange={(e) => update(t.id, { body: e.target.value })} /></label><button className="button secondary" onClick={() => saveTemplate(t)}>Save email format</button></article>)}</div>
     </section>
     <section className="panel"><div className="panel-heading"><div><span className="eyebrow">COMPLAINT TYPES</span><h2>Fixed complaint list</h2></div></div><div className="inline-form"><input value={newType} onChange={(e) => setNewType(e.target.value)} placeholder="New complaint type" /><button className="button primary" onClick={addType}>Add complaint</button></div><div className="chip-list">{complaintTypes.map((c) => <span key={c.id}>{c.name}<button onClick={() => deleteType(c.id)}>×</button></span>)}</div></section>

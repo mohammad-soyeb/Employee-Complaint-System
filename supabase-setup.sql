@@ -22,7 +22,7 @@ create or replace function public.create_private_workspace()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
   insert into public.company_settings (id, owner_id, company_name, company_address, authority_name, authority_designation)
-  values (gen_random_uuid(), new.id, 'Your Company', '', 'HR Manager', 'HR & Admin Manager')
+  values (gen_random_uuid(), new.id, 'Your Company', '', '', '')
   on conflict (owner_id) do nothing;
 
   insert into public.complaint_types (owner_id, name) values
