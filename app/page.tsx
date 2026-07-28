@@ -105,18 +105,38 @@ export default function Home() {
 
   async function importExcel(file?: File) {
     if (!file) return;
-    setLoading(true);
-    const workbook = XLSX.read(await file.arrayBuffer());
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[workbook.SheetNames[0]]);
-    const records = rows.map((row) => ({
-      employee_id: String(row.ID ?? row.Id ?? row.id ?? "").trim(),
-      name: String(row.Name ?? row.name ?? "").trim(),
-      grade: String(row.Grade ?? row.grade ?? "").trim(),
-      status: String(row.Status ?? row.status ?? "Active").trim(),
-    })).filter((row) => row.employee_id && row.name);
-    const { error } = await supabase.from("employees").upsert(records, { onConflict: "owner_id,employee_id" });
-    setNotice(error ? error.message : `${records.length} employee record(s) imported.`);
-    await loadData();
+    setLoading(true); setNotice("");
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer());
+      const firstSheet = workbook.SheetNames[0];
+      if (!firstSheet) throw new Error("The Excel file has no worksheet.");
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[firstSheet], { defval: "" });
+      const value = (row: Record<string, unknown>, names: string[]) => {
+        const matchedKey = Object.keys(row).find((key) => names.includes(key.toLowerCase().replace(/[^a-z0-9]/g, "")));
+        return matchedKey ? String(row[matchedKey]).trim() : "";
+      };
+      const records = rows.map((row) => ({
+        employee_id: value(row, ["id", "employeeid", "employeeidnumber"]),
+        name: value(row, ["name", "employeename", "fullname"]),
+        grade: value(row, ["grade", "jobgradelevel", "jobgrade"]),
+        status: value(row, ["status"]) || "Active",
+      })).filter((row) => row.employee_id && row.name);
+      if (!records.length) {
+        setNotice("No employee was imported. The first row must contain at least ID and Name (or Employee ID and Name)." );
+        return;
+      }
+      const { error } = await supabase.from("employees").upsert(records, { onConflict: "owner_id,employee_id" });
+      if (error) {
+        setNotice(`Import failed: ${error.message}`);
+        return;
+      }
+      await loadData();
+      setNotice(`${records.length} employee record(s) imported successfully.`);
+    } catch (error) {
+      setNotice(`Could not read this file: ${error instanceof Error ? error.message : "Please choose a valid .xlsx or .xls file."}`);
+    } finally {
+      setLoading(false);
+    }
   }
   function openEmployee(id: string) { setSelectedEmployeeId(id); setTab("employee"); }
 
