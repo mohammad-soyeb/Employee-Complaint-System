@@ -2,6 +2,26 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { createClient, Session } from "@supabase/supabase-js";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Building2,
+  Check,
+  ChevronRight,
+  CircleUserRound,
+  FileText,
+  Gauge,
+  LockKeyhole,
+  LogOut,
+  Printer,
+  Search,
+  Settings2,
+  ShieldCheck,
+  Sparkles,
+  Upload,
+  UsersRound,
+} from "lucide-react";
 import * as XLSX from "xlsx";
 
 const supabase = createClient(
@@ -14,6 +34,7 @@ type Complaint = { id: string; employee_id: string; complaint_type: string; comp
 type LetterTemplate = { id: string; name: string; subject: string; body: string; sort_order: number };
 type ComplaintType = { id: string; name: string };
 type Settings = { id?: string; company_name: string; company_address: string; authority_name: string; authority_designation: string };
+type GeneratedLetter = { subject: string; body: string };
 type Tab = "dashboard" | "employee" | "letters" | "settings";
 
 const defaultSettings: Settings = { company_name: "Your Company", company_address: "", authority_name: "HR Manager", authority_designation: "Human Resources" };
@@ -36,17 +57,36 @@ function Login() {
     if (error) setMessage(error.message);
     else if (mode === "signup" && !data.session) setMessage("Account created. Please check your email and confirm your account, then sign in.");
   }
-  return <main className="login-shell"><section className="login-card">
-    <div className="brand brand-login"><span className="brand-mark">EC</span><div><strong>Employee Complaint System</strong><small>Secure HR workspace</small></div></div>
-    <div className="login-copy"><span className="eyebrow">PRIVATE WORKSPACE</span><h1>{mode === "login" ? "Welcome back" : "Create your account"}</h1><p>{mode === "login" ? "Sign in to access only your own employee records and complaints." : "Your records will be private and visible only to this account."}</p></div>
-    <form onSubmit={submit} className="stack">
-      <label>Email address<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="hr@company.com" autoComplete="email" required /></label>
-      <label>Password<input type="password" minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 6 characters" autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>
-      {message && <p className="form-message error">{message}</p>}
-      <button className="button primary wide" disabled={busy}>{busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create private account"}</button>
-    </form>
-    <p className="security-note">{mode === "login" ? "New here? " : "Already have an account? "}<button className="text-button" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setMessage(""); }}>{mode === "login" ? "Create an account" : "Sign in"}</button></p>
-  </section></main>;
+  return <main className="login-shell">
+    <section className="login-showcase">
+      <div className="brand brand-light"><span className="brand-mark"><ShieldCheck size={22} /></span><div><strong>Employee Complaint System</strong><small>Human Resources Management</small></div></div>
+      <div className="showcase-copy">
+        <span className="showcase-badge"><Sparkles size={14} /> Organized. Secure. Efficient.</span>
+        <h1>Manage employee concerns with clarity and confidence.</h1>
+        <p>A private workspace for employee records, complaint tracking and official HR communication.</p>
+      </div>
+      <div className="feature-list">
+        <div><span><UsersRound size={18} /></span><p><strong>Centralized records</strong><small>Keep employee and complaint information together.</small></p></div>
+        <div><span><LockKeyhole size={18} /></span><p><strong>Private by design</strong><small>Every account has its own protected workspace.</small></p></div>
+        <div><span><FileText size={18} /></span><p><strong>Faster documentation</strong><small>Create consistent, professional letters in minutes.</small></p></div>
+      </div>
+      <p className="showcase-footer">Secure HR operations for modern teams</p>
+    </section>
+    <section className="login-panel">
+      <div className="login-card">
+        <div className="mobile-brand brand"><span className="brand-mark"><ShieldCheck size={20} /></span><div><strong>ECMS</strong><small>Secure HR workspace</small></div></div>
+        <div className="login-copy"><span className="eyebrow">SECURE ACCESS</span><h2>{mode === "login" ? "Welcome back" : "Create your account"}</h2><p>{mode === "login" ? "Enter your details to access your private HR workspace." : "Set up a protected workspace for your organization."}</p></div>
+        <form onSubmit={submit} className="stack">
+          <label>Email address<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="hr@company.com" autoComplete="email" required /></label>
+          <label>Password<input type="password" minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 6 characters" autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>
+          {message && <p className="form-message error">{message}</p>}
+          <button className="button primary wide" disabled={busy}>{busy ? "Please wait…" : mode === "login" ? <>Sign in <ArrowRight size={17} /></> : <>Create private account <ArrowRight size={17} /></>}</button>
+        </form>
+        <p className="security-note">{mode === "login" ? "New to ECMS? " : "Already have an account? "}<button className="text-button" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setMessage(""); }}>{mode === "login" ? "Create an account" : "Sign in"}</button></p>
+        <div className="trust-note"><ShieldCheck size={15} /><span>Your connection and workspace are protected.</span></div>
+      </div>
+    </section>
+  </main>;
 }
 
 export default function Home() {
@@ -115,12 +155,17 @@ export default function Home() {
         const matchedKey = Object.keys(row).find((key) => names.includes(key.toLowerCase().replace(/[^a-z0-9]/g, "")));
         return matchedKey ? String(row[matchedKey]).trim() : "";
       };
-      const records = rows.map((row) => ({
+      const parsedRecords = rows.map((row) => ({
         employee_id: value(row, ["id", "employeeid", "employeeidnumber"]),
         name: value(row, ["name", "employeename", "fullname"]),
         grade: value(row, ["grade", "jobgradelevel", "jobgrade"]),
         status: value(row, ["status"]) || "Active",
       })).filter((row) => row.employee_id && row.name);
+      // Postgres cannot upsert the same unique key twice in one request.
+      // If Excel contains repeated employee IDs, keep the final row for that ID.
+      const records = Array.from(
+        new Map(parsedRecords.map((row) => [row.employee_id.toLowerCase(), row])).values()
+      );
       if (!records.length) {
         setNotice("No employee was imported. The first row must contain at least ID and Name (or Employee ID and Name)." );
         return;
@@ -142,16 +187,18 @@ export default function Home() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark">EC</span><div><strong>ECMS</strong><small>HR workspace</small></div></div>
+      <div className="brand sidebar-brand"><span className="brand-mark"><ShieldCheck size={21} /></span><div><strong>ECMS</strong><small>HR Management</small></div></div>
+      <span className="nav-label">WORKSPACE</span>
       <nav className="side-nav" aria-label="Main navigation">
-        <button className={tab === "dashboard" ? "active" : ""} onClick={() => setTab("dashboard")}><span>⌂</span> Dashboard</button>
-        <button className={tab === "letters" ? "active" : ""} onClick={() => setTab("letters")}><span>□</span> Generate Letter</button>
-        <button className={tab === "settings" ? "active" : ""} onClick={() => setTab("settings")}><span>⚙</span> Settings</button>
+        <button className={tab === "dashboard" || tab === "employee" ? "active" : ""} onClick={() => setTab("dashboard")}><Gauge size={19} /> <span>Dashboard</span></button>
+        <button className={tab === "letters" ? "active" : ""} onClick={() => setTab("letters")}><FileText size={19} /> <span>Generate Letter</span></button>
+        <button className={tab === "settings" ? "active" : ""} onClick={() => setTab("settings")}><Settings2 size={19} /> <span>Settings</span></button>
       </nav>
-      <div className="sidebar-user"><span className="avatar">{session.user.email?.[0].toUpperCase()}</span><div><strong>HR Admin</strong><small>{session.user.email}</small></div><button title="Sign out" onClick={() => supabase.auth.signOut()}>↗</button></div>
+      <div className="sidebar-help"><ShieldCheck size={20} /><div><strong>Private workspace</strong><small>Your data is visible only to this account.</small></div></div>
+      <div className="sidebar-user"><span className="avatar">{session.user.email?.[0].toUpperCase()}</span><div><strong>HR Administrator</strong><small>{session.user.email}</small></div><button title="Sign out" aria-label="Sign out" onClick={() => supabase.auth.signOut()}><LogOut size={17} /></button></div>
     </aside>
     <main className="main">
-      <header className="topbar"><div><span className="eyebrow">EMPLOYEE COMPLAINT MANAGEMENT</span><h1>{{ dashboard: "Dashboard", employee: "Employee Details", letters: "Letter Generator", settings: "Settings" }[tab]}</h1></div><span className="secure-pill">● Secure session</span></header>
+      <header className="topbar"><div><span className="breadcrumb">HR Workspace <ChevronRight size={13} /> {{ dashboard: "Overview", employee: "Employee Details", letters: "Letter Generator", settings: "Settings" }[tab]}</span><h1>{{ dashboard: "Dashboard", employee: "Employee Details", letters: "Letter Generator", settings: "Settings" }[tab]}</h1></div><div className="topbar-actions"><span className="secure-pill"><ShieldCheck size={15} /> Secure session</span><span className="topbar-avatar">{session.user.email?.[0].toUpperCase()}</span></div></header>
       {notice && <div className="notice"><span>{notice}</span><button onClick={() => setNotice("")}>×</button></div>}
       {loading && <div className="loading-bar" />}
       {tab === "dashboard" && <Dashboard employees={filteredEmployees} allEmployees={employees} complaints={complaints} templates={templates} search={search} setSearch={setSearch} openEmployee={openEmployee} importExcel={importExcel} />}
@@ -165,15 +212,16 @@ export default function Home() {
 function Dashboard({ employees, allEmployees, complaints, templates, search, setSearch, openEmployee, importExcel }: {
   employees: Employee[]; allEmployees: Employee[]; complaints: Complaint[]; templates: LetterTemplate[]; search: string; setSearch: (v: string) => void; openEmployee: (id: string) => void; importExcel: (file?: File) => void;
 }) {
-  return <><section className="hero"><div><span className="eyebrow">HR OVERVIEW</span><h2>People, complaints and action—all in one place.</h2><p>Review employee records, document complaints and generate official letters.</p></div><label className="button primary file-button">Import Excel<input type="file" accept=".xlsx,.xls" onChange={(e) => importExcel(e.target.files?.[0])} /></label></section>
+  const activeComplaints = complaints.filter((complaint) => !["resolved", "cancelled"].includes(complaint.status.toLowerCase())).length;
+  return <><section className="hero"><div><span className="hero-badge"><Building2 size={14} /> HR OPERATIONS</span><h2>Employee complaint management, simplified.</h2><p>Review employee records, document concerns and prepare official letters from one secure workspace.</p></div><label className="button primary file-button"><Upload size={17} /> Import Excel<input type="file" accept=".xlsx,.xls" onChange={(e) => importExcel(e.target.files?.[0])} /></label></section>
     <section className="stats-grid">
-      <article className="stat-card blue"><span className="stat-icon">👥</span><div><small>Total employees</small><strong>{allEmployees.length}</strong><p>Employee records</p></div></article>
-      <article className="stat-card amber"><span className="stat-icon">!</span><div><small>Total complaints</small><strong>{complaints.length}</strong><p>Recorded complaints</p></div></article>
-      <article className="stat-card green"><span className="stat-icon">□</span><div><small>Letter templates</small><strong>{templates.length}</strong><p>Ready to generate</p></div></article>
+      <article className="stat-card blue"><span className="stat-icon"><UsersRound size={21} /></span><div><small>Total employees</small><strong>{allEmployees.length}</strong><p>Employee records in your workspace</p></div><span className="stat-trend"><Check size={13} /> Updated</span></article>
+      <article className="stat-card amber"><span className="stat-icon"><AlertTriangle size={21} /></span><div><small>Active complaints</small><strong>{activeComplaints}</strong><p>{complaints.length} complaint{complaints.length === 1 ? "" : "s"} recorded in total</p></div><span className="stat-trend neutral">Review</span></article>
+      <article className="stat-card green"><span className="stat-icon"><FileText size={21} /></span><div><small>Letter templates</small><strong>{templates.length}</strong><p>Templates ready for official use</p></div><span className="stat-trend"><Check size={13} /> Ready</span></article>
     </section>
-    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">EMPLOYEE RECORDS</span><h2>Employee list</h2></div><input className="search-input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employee ID or name" /></div>
+    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">EMPLOYEE DIRECTORY</span><h2>Employee records</h2><p>Search, review and open an employee profile.</p></div><div className="search-box"><Search size={17} /><input className="search-input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search ID or employee name" /></div></div>
       <div className="table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Grade</th><th>Status</th><th>Complaints</th><th>Action</th></tr></thead><tbody>
-        {employees.map((e) => <tr key={e.id}><td><strong>{e.employee_id}</strong></td><td>{e.name}</td><td>{e.grade || "—"}</td><td><span className={`status ${e.status.toLowerCase()}`}>{e.status}</span></td><td>{complaints.filter((c) => c.employee_id === e.id).length}</td><td><button className="text-button" onClick={() => openEmployee(e.id)}>View details →</button></td></tr>)}
+        {employees.map((e) => <tr key={e.id}><td><span className="employee-id">{e.employee_id}</span></td><td><div className="employee-cell"><span className="employee-avatar">{e.name.charAt(0).toUpperCase()}</span><strong>{e.name}</strong></div></td><td>{e.grade || "—"}</td><td><span className={`status ${e.status.toLowerCase().replaceAll(" ", "-")}`}>{e.status}</span></td><td><span className="count-badge">{complaints.filter((c) => c.employee_id === e.id).length}</span></td><td><button className="text-button row-action" onClick={() => openEmployee(e.id)}>View profile <ArrowRight size={14} /></button></td></tr>)}
         {!employees.length && <tr><td colSpan={6}><div className="empty">No employee records found.</div></td></tr>}
       </tbody></table></div>
     </section></>;
@@ -190,7 +238,7 @@ function EmployeePanel({ employee, complaints, complaintTypes, hrEmail, onBack, 
     setNotice(error ? error.message : "Complaint saved.");
     if (!error) { setType(""); setReference(""); setNote(""); setStatus("Active"); await onSaved(); }
   }
-  return <><section className="hero compact"><div><span className="eyebrow">EMPLOYEE PROFILE</span><h2>{employee.name}</h2><p>Employee ID {employee.employee_id}</p></div><button className="button secondary" onClick={onBack}>← Dashboard</button></section>
+  return <><section className="hero compact"><div><span className="hero-badge"><CircleUserRound size={14} /> EMPLOYEE PROFILE</span><h2>{employee.name}</h2><p>Employee ID {employee.employee_id}</p></div><button className="button light" onClick={onBack}><ArrowLeft size={17} /> Dashboard</button></section>
     <section className="detail-grid"><div><small>Employee ID</small><strong>{employee.employee_id}</strong></div><div><small>Name</small><strong>{employee.name}</strong></div><div><small>Grade</small><strong>{employee.grade || "—"}</strong></div><div><small>Status</small><strong>{employee.status}</strong></div></section>
     <section className="panel"><div className="panel-heading"><div><span className="eyebrow">NEW COMPLAINT</span><h2>Add complaint</h2></div></div><form className="form-grid" onSubmit={save}>
       <label>Complaint type<select value={type} onChange={(e) => setType(e.target.value)} required><option value="">Select complaint</option>{complaintTypes.map((c) => <option key={c.id}>{c.name}</option>)}</select></label>
@@ -198,10 +246,10 @@ function EmployeePanel({ employee, complaints, complaintTypes, hrEmail, onBack, 
       <label>Status<select value={status} onChange={(e) => setStatus(e.target.value)}><option>Active</option><option>Under Review</option><option>Resolved</option><option>Cancelled</option></select></label>
       <label>Reference<input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Optional reference" /></label>
       <label className="full">Remark<textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Complaint details or additional note" /></label>
-      <div className="full"><button className="button primary">Save complaint</button></div>
+      <div className="full"><button className="button primary"><Check size={17} /> Save complaint</button></div>
     </form></section>
     <section className="panel"><div className="panel-heading"><div><span className="eyebrow">HISTORY</span><h2>Complaint history</h2></div></div><div className="table-wrap"><table><thead><tr><th>Date</th><th>Complaint</th><th>Status</th><th>Reference</th><th>Remark</th></tr></thead><tbody>
-      {complaints.map((c) => <tr key={c.id}><td>{formatDate(c.complaint_date)}</td><td>{c.complaint_type}</td><td><span className="status">{c.status}</span></td><td>{c.reference || "—"}</td><td>{c.note || "—"}</td></tr>)}
+      {complaints.map((c) => <tr key={c.id}><td>{formatDate(c.complaint_date)}</td><td>{c.complaint_type}</td><td><span className={`status ${c.status.toLowerCase().replaceAll(" ", "-")}`}>{c.status}</span></td><td>{c.reference || "—"}</td><td>{c.note || "—"}</td></tr>)}
       {!complaints.length && <tr><td colSpan={5}><div className="empty">No complaints recorded.</div></td></tr>}
     </tbody></table></div></section></>;
 }
@@ -209,32 +257,56 @@ function EmployeePanel({ employee, complaints, complaintTypes, hrEmail, onBack, 
 function LetterGenerator({ employees, complaints, templates, settings, initialEmployeeId, setNotice }: {
   employees: Employee[]; complaints: Complaint[]; templates: LetterTemplate[]; settings: Settings; initialEmployeeId: string; setNotice: (v: string) => void;
 }) {
-  const [employeeId, setEmployeeId] = useState(initialEmployeeId); const [templateId, setTemplateId] = useState(""); const [selected, setSelected] = useState<string[]>([]); const [preview, setPreview] = useState("");
+  const [employeeId, setEmployeeId] = useState(initialEmployeeId); const [templateId, setTemplateId] = useState(""); const [selected, setSelected] = useState<string[]>([]); const [preview, setPreview] = useState<GeneratedLetter | null>(null);
   const employee = employees.find((e) => e.id === employeeId); const employeeComplaints = complaints.filter((c) => c.employee_id === employeeId); const template = templates.find((t) => t.id === templateId);
   useEffect(() => { if (!templateId && templates[0]) setTemplateId(templates[0].id); }, [templateId, templates]);
   function generate() {
     if (!employee || !template) return setNotice("Select an employee and a letter template.");
     const complaintText = employeeComplaints.filter((c) => selected.includes(c.id)).map((c, i) => `${i + 1}. ${c.complaint_type} (${formatDate(c.complaint_date)})`).join("\n") || "No complaint selected";
     const values: Record<string, string> = { employeeName: employee.name, employeeId: employee.employee_id, employeeGrade: employee.grade, complaints: complaintText, date: formatDate(today()), companyName: settings.company_name, companyAddress: settings.company_address, authorityName: settings.authority_name, authorityDesignation: settings.authority_designation };
-    let text = `Subject: ${template.subject}\n\n${template.body}`;
-    Object.entries(values).forEach(([key, value]) => { text = text.replaceAll(`{{${key}}}`, value || ""); });
-    setPreview(text);
+    let subject = template.subject;
+    let body = template.body;
+    Object.entries(values).forEach(([key, value]) => {
+      subject = subject.replaceAll(`{{${key}}}`, value || "");
+      body = body.replaceAll(`{{${key}}}`, value || "");
+    });
+    setPreview({ subject, body });
   }
   async function saveLetter() {
     if (!preview || !employee || !template) return;
-    const { error } = await supabase.from("generated_letters").insert({ employee_id: employee.id, template_id: template.id, subject: template.subject, content: preview });
+    const { error } = await supabase.from("generated_letters").insert({ employee_id: employee.id, template_id: template.id, subject: preview.subject, content: `Subject: ${preview.subject}\n\n${preview.body}` });
     setNotice(error ? error.message : "Letter saved to history.");
   }
-  return <><section className="hero compact"><div><span className="eyebrow">LETTER GENERATOR</span><h2>Create an employee letter</h2><p>Select an employee, template and relevant complaints.</p></div></section>
+  function printLetter() {
+    if (!preview) return;
+    const previousTitle = document.title;
+    document.title = "";
+    window.print();
+    window.setTimeout(() => { document.title = previousTitle; }, 500);
+  }
+  return <><section className="hero compact"><div><span className="hero-badge"><FileText size={14} /> LETTER GENERATOR</span><h2>Create an employee letter</h2><p>Select an employee, template and relevant complaints.</p></div></section>
     <section className="panel"><div className="form-grid">
-      <label>Employee<select value={employeeId} onChange={(e) => { setEmployeeId(e.target.value); setSelected([]); setPreview(""); }}><option value="">Select employee</option>{employees.map((e) => <option value={e.id} key={e.id}>{e.employee_id} — {e.name}</option>)}</select></label>
-      <label>Letter template<select value={templateId} onChange={(e) => { setTemplateId(e.target.value); setPreview(""); }}><option value="">Select template</option>{templates.map((t) => <option value={t.id} key={t.id}>{t.name}</option>)}</select></label>
+      <label>Employee<select value={employeeId} onChange={(e) => { setEmployeeId(e.target.value); setSelected([]); setPreview(null); }}><option value="">Select employee</option>{employees.map((e) => <option value={e.id} key={e.id}>{e.employee_id} — {e.name}</option>)}</select></label>
+      <label>Letter template<select value={templateId} onChange={(e) => { setTemplateId(e.target.value); setPreview(null); }}><option value="">Select template</option>{templates.map((t) => <option value={t.id} key={t.id}>{t.name}</option>)}</select></label>
     </div></section>
     <section className="panel"><div className="panel-heading"><div><span className="eyebrow">COMPLAINTS</span><h2>Select relevant complaints</h2></div></div><div className="checkbox-list">
       {employeeComplaints.map((c) => <label key={c.id}><input type="checkbox" checked={selected.includes(c.id)} onChange={() => setSelected((current) => current.includes(c.id) ? current.filter((id) => id !== c.id) : [...current, c.id])} /><span><strong>{c.complaint_type}</strong><small>{formatDate(c.complaint_date)} · {c.status}</small></span></label>)}
       {!employeeComplaints.length && <div className="empty">Select an employee with complaint records.</div>}
-    </div><div className="button-row"><button className="button primary" onClick={generate}>Generate letter</button><button className="button secondary" onClick={saveLetter} disabled={!preview}>Save letter</button><button className="button secondary" onClick={() => window.print()} disabled={!preview}>Print</button></div></section>
-    <section className="panel print-panel"><div className="panel-heading no-print"><div><span className="eyebrow">PREVIEW</span><h2>Letter preview</h2></div></div><div className="letter-preview">{preview || "Your generated letter will appear here."}</div></section>
+    </div><div className="button-row"><button className="button primary" onClick={generate}><Sparkles size={17} /> Generate letter</button><button className="button secondary" onClick={saveLetter} disabled={!preview}><Check size={17} /> Save letter</button><button className="button secondary" onClick={printLetter} disabled={!preview}><Printer size={17} /> Print / Save PDF</button></div></section>
+    <section className="panel print-panel"><div className="panel-heading no-print"><div><span className="eyebrow">A4 DOCUMENT</span><h2>Letter preview</h2><p>Only the clean letter page will be included when you print or save as PDF.</p></div></div>
+      <div className="letter-stage">
+        <article className="letter-sheet" aria-label="Generated A4 letter">
+          {preview ? <>
+            <header className="letterhead">
+              <strong>{settings.company_name || "Company Name"}</strong>
+              {settings.company_address && <span>{settings.company_address}</span>}
+            </header>
+            <div className="letter-subject"><span>Subject</span><strong>{preview.subject}</strong></div>
+            <div className="letter-body">{preview.body}</div>
+          </> : <div className="letter-empty">Your generated letter will appear here.</div>}
+        </article>
+      </div>
+    </section>
   </>;
 }
 
@@ -263,7 +335,7 @@ function SettingsPanel({ settings, complaintTypes, templates, onSaved, setNotice
     const { error } = await supabase.from("letter_templates").delete().eq("id", id); setNotice(error ? error.message : "Letter template deleted."); if (!error) await onSaved();
   }
   const update = (id: string, patch: Partial<LetterTemplate>) => setDrafts((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
-  return <><section className="hero compact"><div><span className="eyebrow">SYSTEM SETTINGS</span><h2>Company and reusable content</h2><p>Manage complaint categories and letter templates used by HR.</p></div></section>
+  return <><section className="hero compact"><div><span className="hero-badge"><Settings2 size={14} /> SYSTEM SETTINGS</span><h2>Company and reusable content</h2><p>Manage complaint categories and letter templates used by HR.</p></div></section>
     <section className="panel"><div className="panel-heading"><div><span className="eyebrow">COMPANY</span><h2>Company details</h2></div></div><form className="form-grid" onSubmit={saveCompany}>
       <label>Company name<input value={company.company_name} onChange={(e) => setCompany({ ...company, company_name: e.target.value })} /></label>
       <label>Company address<input value={company.company_address} onChange={(e) => setCompany({ ...company, company_address: e.target.value })} /></label>
