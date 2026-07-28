@@ -31,6 +31,8 @@ html {
   min-height: 100%;
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 body {
@@ -42,6 +44,9 @@ body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  overflow-y: visible;
+  overscroll-behavior-y: auto;
 }
 
 button,
@@ -397,6 +402,7 @@ textarea {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 264px minmax(0, 1fr);
+  overflow: visible;
 }
 
 .sidebar {
@@ -835,10 +841,13 @@ textarea {
 }
 
 .table-wrap {
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
   border: 1px solid #e5ebf0;
   border-radius: 11px;
-  overscroll-behavior: contain;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  touch-action: pan-x pan-y;
 }
 
 table {
@@ -1125,11 +1134,14 @@ tbody tr:last-child td {
 
 .letter-stage {
   padding: 23px;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
   background: #e9eef2;
   border: 1px solid #d7e0e8;
   border-radius: 11px;
-  overscroll-behavior: contain;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  touch-action: pan-x pan-y;
 }
 
 .letter-sheet {
