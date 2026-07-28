@@ -5,6 +5,7 @@
 create extension if not exists "pgcrypto";
 
 alter table public.employees add column if not exists owner_id uuid references auth.users(id) on delete cascade default auth.uid();
+alter table public.employees add column if not exists designation text;
 alter table public.complaint_types add column if not exists owner_id uuid references auth.users(id) on delete cascade default auth.uid();
 alter table public.complaints add column if not exists owner_id uuid references auth.users(id) on delete cascade default auth.uid();
 alter table public.letter_templates add column if not exists owner_id uuid references auth.users(id) on delete cascade default auth.uid();
